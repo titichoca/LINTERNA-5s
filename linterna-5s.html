@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>Linterna 5s</title>
+<style>
+  :root { --bg:#0f172a; --fg:#f8fafc; --acc:#fbbf24; --mut:#94a3b8; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; margin:0; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px;
+    padding:16px;
+  }
+  h1 { font-size:1.1rem; font-weight:600; color:var(--mut); margin:0; letter-spacing:.05em; text-transform:uppercase; }
+  #time { font-size:4.5rem; font-variant-numeric:tabular-nums; font-weight:700; }
+  #btn {
+    width:min(70vw,260px); aspect-ratio:1; border-radius:50%;
+    border:6px solid var(--acc); background:transparent; color:var(--acc);
+    font-size:1.4rem; font-weight:700; cursor:pointer;
+    transition:transform .1s, background .2s, color .2s;
+  }
+  #btn:active { transform:scale(.96); }
+  #btn.on { background:var(--acc); color:#0f172a; box-shadow:0 0 60px 10px rgba(251,191,36,.6); }
+  #btn:disabled { cursor:default; }
+  #msg { min-height:3em; text-align:center; color:var(--mut); font-size:.95rem; max-width:320px; }
+  #msg.err { color:#f87171; }
+  svg { vertical-align:-4px; }
+</style>
+</head>
+<body>
+  <h1>Linterna 5 s</h1>
+  <div id="time">5.00</div>
+  <button id="btn" type="button">ENCENDER</button>
+  <div id="msg">Presiona el botón: la linterna se enciende 5 segundos.</div>
+
+<script>
+(() => {
+  const DURACION = 5000; // ms
+  const btn = document.getElementById('btn');
+  const timeEl = document.getElementById('time');
+  const msg = document.getElementById('msg');
+
+  let stream = null, track = null, raf = null, timeout = null;
+
+  const setMsg = (t, err=false) => { msg.textContent = t; msg.className = err ? 'err' : ''; };
+  const fmt = ms => (Math.max(ms,0)/1000).toFixed(2);
+
+  async function encender() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Este navegador no permite acceder a la cámara (se requiere HTTPS).');
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (!('torch' in caps)) {
+      throw new Error('Tu dispositivo/navegador no soporta la linterna desde la web. Usa Chrome en Android.');
+    }
+    await track.applyConstraints({ advanced: [{ torch: true }] });
+  }
+
+  function apagar() {
+    try { if (track) track.applyConstraints({ advanced: [{ torch: false }] }).catch(()=>{}); } catch(e){}
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = track = null;
+    cancelAnimationFrame(raf); clearTimeout(timeout);
+    btn.classList.remove('on');
+    btn.textContent = 'ENCENDER';
+    btn.disabled = false;
+    timeEl.textContent = fmt(DURACION);
+    setMsg('Listo. Presiona de nuevo para otros 5 segundos.');
+  }
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    setMsg('Activando linterna…');
+    try {
+      await encender();
+    } catch (e) {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = track = null;
+      btn.disabled = false;
+      setMsg(e.name === 'NotAllowedError'
+        ? 'Permiso de cámara denegado. Actívalo para usar la linterna.'
+        : (e.message || 'No se pudo encender la linterna.'), true);
+      return;
+    }
+
+    const inicio = performance.now();
+    btn.classList.add('on');
+    btn.textContent = 'ENCENDIDA';
+    setMsg('');
+
+    const tick = () => {
+      const resto = DURACION - (performance.now() - inicio);
+      timeEl.textContent = fmt(resto);
+      if (resto > 0) raf = requestAnimationFrame(tick);
+    };
+    tick();
+    timeout = setTimeout(apagar, DURACION);
+  });
+
+  // Seguridad: apagar si la pestaña pasa a segundo plano
+  document.addEventListener('visibilitychange', () => { if (document.hidden && track) apagar(); });
+})();
+</script>
+</body>
+</html>
